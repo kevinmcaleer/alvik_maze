@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  ros2_alvik:
+    build: .
+    container_name: alvik_ros2
+    privileged: true
+    network_mode: host
+    
+    # Enable GUI forwarding for macOS
+    environment:
+      - DISPLAY=host.docker.internal:0
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    
+    volumes:
+      # Mount workspace
+      - ./ros2_ws:/ros2_ws
+      # Mount X11 socket for GUI
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Share network configuration
+      - /etc/hosts:/etc/hosts:ro
+    
+    devices:
+      - /dev/dri:/dev/dri  # GPU access if available
+    
+    stdin_open: true
+    tty: true
+    
+    command: bash
+
+  # MQTT Broker for Alvik communication
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: alvik_mqtt
+    network_mode: host
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
