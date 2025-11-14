@@ -30,21 +30,28 @@ Upload `main.py` to Alvik.
 
 ### Every Time You Want to Use It:
 
-**Step 1:** Start XQuartz
+**Step 1:** Start Docker Containers
 ```bash
-open -a XQuartz
-xhost + localhost
+docker compose up -d
 ```
 
-**Step 2:** Start Docker Container
+This automatically starts:
+- ✓ ROS2 Jazzy environment
+- ✓ Foxglove Bridge (ws://localhost:8765)
+- ✓ MQTT Broker (localhost:1883)
+
+**Step 2:** Open Foxglove Studio
 ```bash
-cd alvik-ros2-docker
-./scripts/run.sh
+open -a Foxglove
 ```
-Note the Mac IP address shown!
+- Click "Open connection"
+- Select "Foxglove WebSocket"
+- Enter: `ws://localhost:8765`
+- Click "Open"
 
 **Step 3:** Inside Container, Launch ROS2
 ```bash
+docker exec -it alvik_ros2 bash
 cd /ros2_ws
 colcon build --symlink-install  # First time only
 source install/setup.bash
@@ -54,11 +61,13 @@ ros2 launch alvik_mapping alvik_system.launch.py
 **Step 4:** Power On Alvik
 Run the main.py script on your Alvik.
 
-**Step 5:** Use rviz2
-- rviz2 window should open
-- Click "2D Goal Pose" button
-- Click on map where you want robot to go
-- Robot moves there automatically!
+**Step 5:** Visualize in Foxglove
+- You'll see ROS2 topics appear in the left sidebar
+- Add visualization panels:
+  - "3D" panel for robot and map visualization
+  - "Raw Messages" panel for topic data
+  - "Image" panel for camera feeds (if available)
+- Click "Publish" to send navigation goals
 
 ## Common Commands
 
@@ -114,9 +123,11 @@ mosquitto_sub -h localhost -t "alvik/#" -v
 
 ## Troubleshooting
 
-**rviz2 doesn't open:**
-- Is XQuartz running? `ps aux | grep XQuartz`
-- Did you run `xhost + localhost`?
+**Foxglove won't connect:**
+- Check if Foxglove Bridge is running: `docker exec alvik_ros2 ps aux | grep foxglove`
+- Check logs: `docker exec alvik_ros2 cat /tmp/foxglove.log`
+- Verify port is open: `lsof -i:8765`
+- Try restarting: `docker compose restart`
 
 **Alvik won't connect:**
 - Are Mac and Alvik on same WiFi?

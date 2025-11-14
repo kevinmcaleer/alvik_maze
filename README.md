@@ -2,6 +2,12 @@
 
 Complete Docker-based ROS2 system for Arduino Alvik robot mapping and click-to-navigate control via rviz2.
 
+> **🍎 Apple Silicon Users (M1/M2/M3):** Use the optimized build script for better performance:
+> ```bash
+> ./scripts/build-arm64.sh
+> ```
+> See [APPLE_SILICON.md](APPLE_SILICON.md) for detailed Apple Silicon setup and troubleshooting.
+
 ## Features
 
 - 🗺️ **Real-time room mapping** using Alvik's ToF sensor

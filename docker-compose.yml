@@ -2,10 +2,15 @@ version: '3.8'
 
 services:
   ros2_alvik:
-    build: .
+    build:
+      context: .
     container_name: alvik_ros2
+    platform: linux/arm64
     privileged: true
-    network_mode: host
+    # Note: network_mode: host doesn't work on macOS Docker Desktop
+    # Using port mapping instead
+    ports:
+      - "8765:8765"  # Foxglove Bridge WebSocket
     
     # Enable GUI forwarding for macOS
     environment:
@@ -13,6 +18,13 @@ services:
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=42
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Force software rendering (fixes OpenGL errors on macOS)
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - GALLIUM_DRIVER=llvmpipe
+      - MESA_GL_VERSION_OVERRIDE=3.3
+      # Additional Mesa configuration
+      - MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+      - LP_NO_RAST=false
     
     volumes:
       # Mount workspace
@@ -34,7 +46,9 @@ services:
   mosquitto:
     image: eclipse-mosquitto:latest
     container_name: alvik_mqtt
-    network_mode: host
+    ports:
+      - "1883:1883"  # MQTT
+      - "9001:9001"  # MQTT over WebSockets
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data

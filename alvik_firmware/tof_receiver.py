@@ -71,12 +71,27 @@ class AlvikToFReceiver(Node):
             topic = msg.topic
             
             if topic == 'alvik/scan':
-                # Parse "angle,distance" message
+                # Parse "angle,distance" or "angle,(dist1,dist2,...)" message
                 data = msg.payload.decode().strip()
-                angle_str, distance_str = data.split(',')
+
+                # Split only on first comma to separate angle from distance(s)
+                if ',' not in data:
+                    return
+
+                angle_str, distance_part = data.split(',', 1)
                 angle = float(angle_str)
-                distance = float(distance_str) / 1000.0  # mm to meters
-                
+
+                # Handle multiple distances: "(7.4, 9.4, 10.2)" or single "500"
+                distance_part = distance_part.strip()
+                if distance_part.startswith('(') and distance_part.endswith(')'):
+                    # Multiple distances - take the average
+                    distance_str = distance_part[1:-1]  # Remove parentheses
+                    distances = [float(d.strip()) for d in distance_str.split(',')]
+                    distance = sum(distances) / len(distances) / 100.0  # Average in meters (cm to m)
+                else:
+                    # Single distance
+                    distance = float(distance_part) / 100.0  # cm to meters
+
                 # Store in current scan
                 self.current_scan[angle] = distance
                 
@@ -113,7 +128,7 @@ class AlvikToFReceiver(Node):
         scan.angle_increment = math.radians(avg_increment)
         scan.time_increment = 0.0
         scan.scan_time = 0.0
-        scan.range_min = 0.05  # 5cm minimum
+        scan.range_min = 0.02  # 2cm minimum
         scan.range_max = 2.0   # 2m maximum for ToF
         
         # Build ranges array in order
