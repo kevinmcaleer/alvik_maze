@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'urdf'), glob('urdf/*.urdf')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -28,6 +29,8 @@ setup(
             'odom_publisher = alvik_navigation.odom_publisher:main',
             'click_to_move = alvik_navigation.click_to_move:main',
             'teleop_keyboard = alvik_navigation.teleop_keyboard:main',
+            'robot_publisher = alvik_navigation.robot_publisher:main',
+            'maze_explorer = alvik_navigation.maze_explorer:main',
         ],
     },
 )

@@ -5,6 +5,7 @@ and publishes as ROS2 LaserScan messages
 """
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster
@@ -27,7 +28,14 @@ class AlvikToFReceiver(Node):
         scan_topic = self.get_parameter('scan_topic').value
         
         # ROS2 publishers
-        self.scan_pub = self.create_publisher(LaserScan, 'scan', 10)
+        # Use sensor QoS with BEST_EFFORT reliability for SLAM compatibility
+        scan_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+        self.scan_pub = self.create_publisher(LaserScan, 'scan', scan_qos)
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # Storage for current scan

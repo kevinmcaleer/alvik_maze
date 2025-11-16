@@ -10,6 +10,9 @@ echo "Starting all ROS2 nodes..."
 echo ""
 
 # Start nodes in background
+echo "Starting robot visualization..."
+ros2 launch alvik_navigation robot_description.launch.py &
+
 echo "Starting ToF receiver..."
 python3 /ros2_ws/src/alvik_navigation/alvik_navigation/tof_receiver.py --ros-args -p mqtt_host:=192.168.1.152 &
 

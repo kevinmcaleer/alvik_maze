@@ -2,6 +2,7 @@
 Alvik Main Firmware - ROS2 Integration
 Connects to MQTT broker and provides scanning and navigation capabilities
 Uses asyncio for non-blocking MQTT communication
+Direct VL53L5CX access for full 8x8 zone data
 """
 from arduino_alvik import ArduinoAlvik
 from my_secrets import WIFI_SSID, WIFI_PASSWORD, MQTT_BROKER, MQTT_PORT
@@ -11,6 +12,13 @@ import uasyncio as asyncio
 from umqtt.robust import MQTTClient
 import json
 import math
+
+# Try to import machine for I2C access
+try:
+    from machine import I2C, Pin
+    i2c_available = True
+except:
+    i2c_available = False
 
 # Initialize Alvik
 alvik = ArduinoAlvik()
@@ -24,6 +32,114 @@ robot_theta = 0.0
 # Global MQTT client
 mqtt_client = None
 scanning = False
+
+# VL53L5CX sensor access - store all 7 sensors
+tof_sensors = {
+    'left': None,
+    'center_left': None,
+    'center': None,
+    'center_right': None,
+    'right': None,
+    'top': None,
+    'bottom': None
+}
+
+def init_vl53_sensor():
+    """Access all 7 ToF sensor objects and explore their capabilities"""
+    global tof_sensors
+
+    try:
+        print("=== Exploring Alvik ToF Sensors ===")
+
+        # Map of sensor names to object attributes
+        sensor_map = {
+            'left': '_left_tof',
+            'center_left': '_center_left_tof',
+            'center': '_center_tof',
+            'center_right': '_center_right_tof',
+            'right': '_right_tof',
+            'top': '_top_tof',
+            'bottom': '_bottom_tof'
+        }
+
+        sensors_found = 0
+
+        # Try to access each sensor object
+        for name, attr_name in sensor_map.items():
+            if hasattr(alvik, attr_name):
+                sensor_obj = getattr(alvik, attr_name)
+                tof_sensors[name] = sensor_obj
+                sensors_found += 1
+
+                print("Found {}: {}".format(name, type(sensor_obj)))
+
+                # Explore first sensor in detail to understand capabilities
+                if name == 'center':
+                    print("  Exploring center sensor methods:")
+                    methods = [m for m in dir(sensor_obj) if not m.startswith('_')]
+                    print("  Methods: {}".format(methods[:10]))  # First 10 methods
+
+                    # Try key methods
+                    for method_name in ['get_distance', 'get_zones', 'read_distance', 'ranging_data']:
+                        if hasattr(sensor_obj, method_name):
+                            print("  Has method: {}".format(method_name))
+
+        print("Total sensors found: {}/7".format(sensors_found))
+        return sensors_found > 0
+
+    except Exception as e:
+        print("Error in init: {}".format(e))
+        import sys
+        sys.print_exception(e)
+        return False
+
+def get_all_tof_readings():
+    """Read all 7 ToF sensors and combine into single array
+    Returns tuple with combined distance readings from all sensors
+    """
+    global tof_sensors
+
+    all_readings = []
+
+    # Order sensors left to right for proper angular distribution
+    sensor_order = ['left', 'center_left', 'center', 'center_right', 'right']
+
+    for sensor_name in sensor_order:
+        sensor_obj = tof_sensors.get(sensor_name)
+        if sensor_obj is None:
+            continue
+
+        try:
+            # Try to get distance from this sensor
+            # Each sensor might have get_distance() method
+            if hasattr(sensor_obj, 'get_distance'):
+                dist = sensor_obj.get_distance()
+                if isinstance(dist, (int, float)) and dist > 0:
+                    all_readings.append(dist)
+                elif isinstance(dist, tuple):
+                    # Sensor returned multiple zones!
+                    for zone_dist in dist:
+                        if zone_dist > 0:
+                            all_readings.append(zone_dist)
+            elif callable(sensor_obj):
+                # Sensor object itself might be callable
+                dist = sensor_obj()
+                if isinstance(dist, (int, float)) and dist > 0:
+                    all_readings.append(dist)
+                elif isinstance(dist, tuple):
+                    for zone_dist in dist:
+                        if zone_dist > 0:
+                            all_readings.append(zone_dist)
+
+        except Exception as e:
+            # Don't spam errors, just skip failed sensors
+            pass
+
+    # Return as tuple if we got readings, otherwise None
+    if len(all_readings) > 0:
+        return tuple(all_readings)
+    else:
+        return None
 
 def connect_wifi():
     """Connect to WiFi network"""
@@ -143,34 +259,69 @@ async def continuous_tof_publisher():
             # Get current robot angle in degrees
             current_angle = math.degrees(robot_theta) % 360
 
-            # Read ToF sensor
-            dist = alvik.get_distance()
+            # Try to read from all 7 ToF sensors individually
+            dist = get_all_tof_readings()
+
+            # If no readings from individual sensors, fall back to get_distance()
+            if dist is None:
+                dist = alvik.get_distance()
+
+            # Debug: publish what we got to MQTT for diagnosis (only occasionally)
+            import time
+            if int(time.time()) % 5 == 0:  # Every 5 seconds
+                if isinstance(dist, tuple):
+                    debug_msg = "ToF readings: {} sensors".format(len(dist))
+                    mqtt_client.publish(b"alvik/debug", debug_msg.encode())
+                else:
+                    debug_msg = "ToF single: {}".format(dist)
+                    mqtt_client.publish(b"alvik/debug", debug_msg.encode())
 
             if isinstance(dist, tuple) and len(dist) == 64:
                 # Multi-zone data: 8x8 grid
                 # Publish all 64 zones with angle offsets
                 for zone_idx, zone_dist in enumerate(dist):
-                    if zone_dist > 0:  # Valid reading
-                        row = zone_idx // 8  # 0-7 (top to bottom)
-                        col = zone_idx % 8   # 0-7 (left to right)
+                    row = zone_idx // 8  # 0-7 (top to bottom)
+                    col = zone_idx % 8   # 0-7 (left to right)
 
-                        # Calculate horizontal angle offset for this zone
-                        col_angle_offset = (col - 3.5) * FOV_PER_COLUMN
+                    # Calculate horizontal angle offset for this zone
+                    col_angle_offset = (col - 3.5) * FOV_PER_COLUMN
 
-                        # Total angle = robot angle + zone offset
-                        zone_angle = (current_angle + col_angle_offset) % 360
+                    # Total angle = robot angle + zone offset
+                    zone_angle = (current_angle + col_angle_offset) % 360
 
-                        # Publish individual zone reading
-                        message = "{:.2f},{}".format(zone_angle, zone_dist)
-                        mqtt_client.publish(b"alvik/scan", message.encode())
+                    # Use max range for invalid readings to fill out the scan
+                    if zone_dist <= 0:
+                        zone_dist = 200  # 2m max range in cm
+
+                    # Publish individual zone reading
+                    message = "{:.2f},{}".format(zone_angle, zone_dist)
+                    mqtt_client.publish(b"alvik/scan", message.encode())
 
             elif isinstance(dist, tuple):
-                # Multiple zones but not 64 - average them
-                valid_dists = [d for d in dist if d > 0]
-                if valid_dists:
-                    avg_distance = sum(valid_dists) / len(valid_dists)
-                    message = "{},{}".format(current_angle, avg_distance)
-                    mqtt_client.publish(b"alvik/scan", message.encode())
+                # Multiple zones but not 64 - spread across FOV
+                # Interpolate to create denser scans for SLAM
+                num_zones = len(dist)
+                fov_per_zone = FOV_HORIZONTAL / num_zones
+                interpolation_factor = 5  # Publish 5 points per zone (5 sensors × 5 = 25 points)
+
+                for zone_idx, zone_dist in enumerate(dist):
+                    # Skip invalid readings
+                    if zone_dist <= 0:
+                        zone_dist = 200  # 2m max range for invalid
+
+                    # Calculate base angle offset for this zone
+                    zone_angle_offset = (zone_idx - (num_zones - 1) / 2.0) * fov_per_zone
+                    base_angle = (current_angle + zone_angle_offset) % 360
+
+                    # Publish multiple interpolated points for this zone
+                    for interp_idx in range(interpolation_factor):
+                        # Spread interpolated points across the zone's FOV
+                        angle_delta = (interp_idx - interpolation_factor / 2.0) * (fov_per_zone / interpolation_factor)
+                        interp_angle = (base_angle + angle_delta) % 360
+
+                        # Publish interpolated reading
+                        message = "{:.2f},{}".format(interp_angle, zone_dist)
+                        mqtt_client.publish(b"alvik/scan", message.encode())
             else:
                 # Single distance reading
                 if dist > 0:
@@ -488,6 +639,13 @@ async def main_loop():
 
     print("\nAlvik ready! Waiting for commands...")
     print("Robot at position: ({}, {}), angle: {}°".format(robot_x, robot_y, math.degrees(robot_theta)))
+
+    # Try to initialize all 7 ToF sensors for direct access
+    print("\nAttempting to access all 7 ToF sensors directly...")
+    if init_vl53_sensor():
+        print("ToF sensors initialized - reading from individual sensors")
+    else:
+        print("Using standard get_distance() method")
 
     # Publish initial odometry
     publish_odometry()

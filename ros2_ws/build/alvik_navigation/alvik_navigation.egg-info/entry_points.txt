@@ -1,4 +1,7 @@
 [console_scripts]
 click_to_move = alvik_navigation.click_to_move:main
+maze_explorer = alvik_navigation.maze_explorer:main
 odom_publisher = alvik_navigation.odom_publisher:main
+robot_publisher = alvik_navigation.robot_publisher:main
+teleop_keyboard = alvik_navigation.teleop_keyboard:main
 tof_receiver = alvik_navigation.tof_receiver:main

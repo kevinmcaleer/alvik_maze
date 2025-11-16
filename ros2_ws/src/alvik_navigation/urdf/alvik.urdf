@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<robot name="alvik">
+
+  <!-- Base Link - White lower body -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <!-- Alvik lower body: 9.6cm x 9.5cm x 2.5cm (white base) -->
+        <box size="0.096 0.095 0.025"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="white">
+        <color rgba="0.95 0.95 0.95 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.096 0.095 0.037"/>
+      </geometry>
+      <origin xyz="0 0 0.0185" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- Blue Top Surface -->
+  <link name="top_surface">
+    <visual>
+      <geometry>
+        <!-- Blue top surface: 9.6cm x 9.5cm x 1.2cm -->
+        <box size="0.096 0.095 0.012"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="blue">
+        <color rgba="0.2 0.5 0.9 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="top_surface_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="top_surface"/>
+    <origin xyz="0 0 0.031" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Left Wheel -->
+  <link name="left_wheel">
+    <visual>
+      <geometry>
+        <!-- Alvik wheel: approximately 3.2cm diameter, 1.2cm width -->
+        <cylinder radius="0.016" length="0.012"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="black">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <!-- Wheels positioned at the sides, wheelbase ~7cm -->
+    <origin xyz="0 0.041 0.016" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- Right Wheel -->
+  <link name="right_wheel">
+    <visual>
+      <geometry>
+        <!-- Alvik wheel: approximately 3.2cm diameter, 1.2cm width -->
+        <cylinder radius="0.016" length="0.012"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="black">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <!-- Wheels positioned at the sides, wheelbase ~7cm -->
+    <origin xyz="0 -0.041 0.016" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- ToF Laser Sensor -->
+  <link name="alvik_laser">
+    <visual>
+      <geometry>
+        <!-- Small ToF sensor module -->
+        <box size="0.015 0.020 0.010"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="dark_gray">
+        <color rgba="0.3 0.3 0.3 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="alvik_laser"/>
+    <!-- ToF sensor at front-center of robot, on top surface -->
+    <origin xyz="0.045 0.0 0.037" rpy="0 0 0"/>
+  </joint>
+
+</robot>
