@@ -4,8 +4,14 @@ Keyboard Teleop Node for Alvik Robot
 Control the robot using keyboard:
   w/↑ - Move forward
   s/↓ - Move backward
-  a/← - Rotate left
-  d/→ - Rotate right
+  a/← - Rotate left (15°)
+  d/→ - Rotate right (15°)
+
+  t - Move forward (same as w)
+  g - Move backward (same as s)
+  f - Rotate left 90°
+  h - Rotate right 90°
+
   space - Stop
   q - Quit
 """
@@ -49,6 +55,12 @@ class TeleopKeyboard(Node):
         self.get_logger().info('  s/↓ : Move backward ({} cm)'.format(self.linear_step))
         self.get_logger().info('  a/← : Rotate left   ({} deg)'.format(self.angular_step))
         self.get_logger().info('  d/→ : Rotate right  ({} deg)'.format(self.angular_step))
+        self.get_logger().info('')
+        self.get_logger().info('  t : Move forward  ({} cm)'.format(self.linear_step))
+        self.get_logger().info('  g : Move backward ({} cm)'.format(self.linear_step))
+        self.get_logger().info('  f : Rotate left   90 deg')
+        self.get_logger().info('  h : Rotate right  90 deg')
+        self.get_logger().info('')
         self.get_logger().info('  space : Stop')
         self.get_logger().info('  q : Quit')
         self.get_logger().info('=' * 50)
@@ -102,6 +114,14 @@ class TeleopKeyboard(Node):
                     self.send_rotate_command(self.angular_step)
                 elif key == 'd' or key == '\x1b[C':  # d or right arrow
                     self.send_rotate_command(-self.angular_step)
+                elif key == 't':  # t - forward (same as w)
+                    self.send_move_command(self.linear_step)
+                elif key == 'g':  # g - backward (same as s)
+                    self.send_move_command(-self.linear_step)
+                elif key == 'f':  # f - rotate left 90 degrees
+                    self.send_rotate_command(90)
+                elif key == 'h':  # h - rotate right 90 degrees
+                    self.send_rotate_command(-90)
                 elif key == ' ':  # space
                     self.send_stop_command()
                 elif key == 'q':  # quit

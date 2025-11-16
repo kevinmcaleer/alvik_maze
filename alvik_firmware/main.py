@@ -32,6 +32,7 @@ robot_theta = 0.0
 # Global MQTT client
 mqtt_client = None
 scanning = False
+wiggling = False
 
 # VL53L5CX sensor access - store all 7 sensors
 tof_sensors = {
@@ -195,7 +196,7 @@ def connect_mqtt():
 
 def on_mqtt_message(topic, msg):
     """Handle incoming MQTT commands"""
-    global scanning
+    global scanning, wiggling
     try:
         command = json.loads(msg.decode())
         cmd_type = command.get('type')
@@ -208,6 +209,13 @@ def on_mqtt_message(topic, msg):
                 asyncio.create_task(perform_scan())
             else:
                 print("Scan already in progress")
+
+        elif cmd_type == 'wiggle':
+            # Schedule async wiggle task for SLAM
+            if not wiggling and not scanning:
+                asyncio.create_task(perform_wiggle())
+            else:
+                print("Wiggle or scan already in progress")
 
         elif cmd_type == 'move':
             # Move forward/backward
@@ -278,10 +286,15 @@ async def continuous_tof_publisher():
 
             if isinstance(dist, tuple) and len(dist) == 64:
                 # Multi-zone data: 8x8 grid
-                # Publish all 64 zones with angle offsets
+                # Only publish CENTER 2 COLUMNS (3 and 4) to avoid arc artifacts
+                # This sacrifices FOV for accurate straight-line wall detection
                 for zone_idx, zone_dist in enumerate(dist):
                     row = zone_idx // 8  # 0-7 (top to bottom)
                     col = zone_idx % 8   # 0-7 (left to right)
+
+                    # Only publish center columns (3 and 4)
+                    if col not in [3, 4]:
+                        continue
 
                     # Calculate horizontal angle offset for this zone
                     col_angle_offset = (col - 3.5) * FOV_PER_COLUMN
@@ -347,9 +360,9 @@ async def perform_scan():
     publish_status("Scanning...")
 
     # Scan parameters
-    num_readings = 360   # One reading per degree
+    num_readings = 360   # One reading per degree (max iterations)
     readings_sent = 0
-    rotation_speed = 30  # Motor speed for continuous rotation
+    rotation_speed = 60  # Motor speed for continuous rotation (increased for faster scan)
 
     # Robot wheel parameters for encoder calculation
     WHEEL_DIAMETER_CM = 3.9  # Alvik wheel diameter
@@ -418,7 +431,7 @@ async def perform_scan():
                 angle = i
 
             # Get ToF distance (allow sensor time to measure)
-            await asyncio.sleep(0.03)  # 30ms delay for ToF to take fresh reading
+            await asyncio.sleep(0.02)  # 20ms delay for ToF to take fresh reading (reduced for faster scan)
             dist = alvik.get_distance()
 
             try:
@@ -426,8 +439,7 @@ async def perform_scan():
                 # Publish all zones individually with angle offsets
                 if isinstance(dist, tuple) and len(dist) == 64:
                     # Multi-zone data: 8x8 grid
-                    # FOV: 45° total, so each column is ~5.625° wide
-                    # Columns 0-7 span from -22.5° to +22.5° (left to right)
+                    # Only publish CENTER 2 COLUMNS (3 and 4) to avoid arc artifacts
                     FOV_HORIZONTAL = 45.0
                     FOV_PER_COLUMN = FOV_HORIZONTAL / 8.0  # 5.625°
 
@@ -437,8 +449,12 @@ async def perform_scan():
                             row = zone_idx // 8  # 0-7 (top to bottom)
                             col = zone_idx % 8   # 0-7 (left to right)
 
+                            # Only publish center columns (3 and 4)
+                            if col not in [3, 4]:
+                                continue
+
                             # Calculate horizontal angle offset for this zone
-                            # Column 0 = -22.5°, Column 4 = 0°, Column 7 = +22.5°
+                            # Column 3 = -2.8°, Column 4 = +2.8°
                             col_angle_offset = (col - 3.5) * FOV_PER_COLUMN
 
                             # Total angle = robot angle + zone offset
@@ -471,8 +487,8 @@ async def perform_scan():
             # Rotation in place only changes theta, not x/y position
             robot_theta = math.radians(angle)
 
-            # Publish odometry every 10 readings (every ~10 degrees)
-            if i % 10 == 0:
+            # Publish odometry every 5 readings for smoother rotation visualization
+            if i % 5 == 0:
                 publish_odometry()
 
             # Print progress every 60 degrees
@@ -551,6 +567,97 @@ async def perform_scan():
 
         publish_status("Scan complete")
         scanning = False
+
+async def perform_wiggle():
+    """Wiggle robot left and right using direct motor control for fast movement"""
+    global wiggling, mqtt_client, robot_theta
+
+    wiggling = True
+    publish_status("Starting wiggle for SLAM...")
+    print("Starting fast wiggle sequence...")
+
+    # Robot parameters for encoder calculation
+    WHEEL_DIAMETER_CM = 3.9
+    WHEEL_BASE_CM = 14.3
+    DEGREES_PER_ROTATION = 360.0
+    ROTATION_CALIBRATION = 0.73
+
+    # Calculate encoder degrees per robot rotation degree
+    arc_length_per_degree = (3.14159 * WHEEL_BASE_CM) / 360.0
+    wheel_rotations_per_degree = arc_length_per_degree / (3.14159 * WHEEL_DIAMETER_CM)
+    encoder_degrees_per_robot_degree = wheel_rotations_per_degree * DEGREES_PER_ROTATION * ROTATION_CALIBRATION
+
+    try:
+        # Wiggle parameters
+        wiggle_angle = 15  # degrees (robot rotation angle)
+        num_cycles = 8     # Number of complete left-right cycles
+        rotation_speed = 40  # Motor speed (faster than scan, but controlled)
+
+        print("Wiggling {} cycles at motor speed {}...".format(num_cycles, rotation_speed))
+
+        # Reset motor control
+        alvik.set_wheels_speed(0, 0)
+        await asyncio.sleep(0.2)
+
+        # Oscillate left-right for multiple cycles
+        for cycle in range(num_cycles):
+            print("Cycle {}/{}".format(cycle + 1, num_cycles))
+
+            # === Right swing ===
+            left_start, right_start = alvik.get_wheels_position()
+            target_encoder_delta = wiggle_angle * encoder_degrees_per_robot_degree
+
+            # Start rotating right (clockwise)
+            alvik.set_wheels_speed(-rotation_speed, rotation_speed)
+
+            # Monitor encoders until target reached
+            while True:
+                left_pos, right_pos = alvik.get_wheels_position()
+                avg_delta = (abs(left_pos - left_start) + abs(right_pos - right_start)) / 2.0
+
+                if avg_delta >= target_encoder_delta:
+                    alvik.set_wheels_speed(0, 0)
+                    robot_theta += math.radians(wiggle_angle)
+                    publish_odometry()
+                    break
+
+                await asyncio.sleep(0.01)
+
+            await asyncio.sleep(0.05)  # Tiny settle time
+
+            # === Left swing ===
+            left_start, right_start = alvik.get_wheels_position()
+            target_encoder_delta = wiggle_angle * encoder_degrees_per_robot_degree
+
+            # Start rotating left (counter-clockwise)
+            alvik.set_wheels_speed(rotation_speed, -rotation_speed)
+
+            # Monitor encoders until target reached
+            while True:
+                left_pos, right_pos = alvik.get_wheels_position()
+                avg_delta = (abs(left_pos - left_start) + abs(right_pos - right_start)) / 2.0
+
+                if avg_delta >= target_encoder_delta:
+                    alvik.set_wheels_speed(0, 0)
+                    robot_theta -= math.radians(wiggle_angle)
+                    publish_odometry()
+                    break
+
+                await asyncio.sleep(0.01)
+
+            await asyncio.sleep(0.05)  # Tiny settle time
+
+        # Ensure stopped
+        alvik.set_wheels_speed(0, 0)
+
+        print("Wiggle complete! ({} cycles completed)".format(num_cycles))
+        publish_status("Wiggle complete")
+    except Exception as e:
+        print("Wiggle error: {}".format(e))
+        alvik.set_wheels_speed(0, 0)  # Emergency stop
+        publish_status("Wiggle error")
+    finally:
+        wiggling = False
 
 def move_robot(distance_cm):
     """Move robot forward/backward by specified distance in cm"""
