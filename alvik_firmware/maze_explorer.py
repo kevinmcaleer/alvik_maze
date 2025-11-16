@@ -12,7 +12,7 @@ alvik = ArduinoAlvik()
 alvik.begin()
 
 # Configuration
-WALL_DISTANCE_CM = 4.0  # Stop when wall is closer than this (cm)
+WALL_DISTANCE_CM = 10.0  # Stop when wall is closer than this (cm)
 MOVE_STEP_CM = 5.0       # Move forward in small steps (cm)
 TURN_ANGLE_DEG = 90      # Turn left 90 degrees when wall detected
 
